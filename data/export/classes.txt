@@ -1,0 +1,5 @@
+unripe
+early_ripening
+ripe
+overripe
+rotten

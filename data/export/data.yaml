@@ -1,0 +1,11 @@
+path: /Users/habil/Coding/python/pepaya-satt/data/export
+train: images/train
+val: images/val
+test: images/test
+nc: 5
+names:
+  0: unripe
+  1: early_ripening
+  2: ripe
+  3: overripe
+  4: rotten

@@ -1,0 +1,2 @@
+[console_scripts]
+papaya-cli = papaya_cli.cli:main

@@ -1,7 +1,6 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .eggs/
 build/
 dist/
@@ -14,7 +13,6 @@ venv/
 htmlcov/
 
 # Dataset & training artifacts
-data/
 runs/
 
 # OS & secrets
