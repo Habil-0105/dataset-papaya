@@ -1,0 +1,76 @@
+classes:
+  - unripe
+  - early_ripening
+  - ripe
+  - overripe
+  - rotten
+
+queries:
+  unripe:
+    - "california papaya unripe green"
+    - "unripe green papaya fruit on tree"
+    - "pepaya california mentah hijau"
+    - "buah pepaya muda hijau"
+  early_ripening:
+    - "papaya early ripening turning yellow"
+    - "half ripe papaya fruit yellow green"
+    - "pepaya california mengkal"
+    - "buah pepaya setengah matang kuning hijau"
+  ripe:
+    - "ripe california papaya fruit orange"
+    - "ripe papaya fruit"
+    - "pepaya california matang"
+    - "buah pepaya matang segar"
+  overripe:
+    - "papaya overripe soft"
+    - "overripe papaya fruit wrinkled"
+    - "pepaya terlalu matang"
+    - "buah pepaya kelewat matang"
+  rotten:
+    - "papaya rotten spoiled mold"
+    - "rotten papaya fruit decay"
+    - "pepaya busuk berjamur"
+    - "buah pepaya busuk"
+
+scraper:
+  output_dir: "data/raw"
+  per_class: 200
+  min_size: [320, 320]
+  delay: 1.0
+  threads: 4
+  sources: ["bing", "google"]
+  # Optional API sources: add "unsplash" / "pexels" to sources and set keys or env vars
+  # (UNSPLASH_ACCESS_KEY / PEXELS_API_KEY).
+  unsplash_access_key: ""
+  pexels_api_key: ""
+  max_retries: 3
+  respect_robots: true
+
+cleaner:
+  input_dir: "data/raw"
+  output_dir: "data/clean"
+  min_size: [320, 320]
+  phash_threshold: 6
+  clip_model: "openai/clip-vit-base-patch32"
+  clip_threshold: 0.5
+  device: "auto"
+
+annotator:
+  input_dir: "data/clean"
+  output_dir: "data/annotated"
+  detector: "grounding-dino" # grounding-dino | owlvit
+  detector_model: "IDEA-Research/grounding-dino-tiny"
+  clip_model: "openai/clip-vit-base-patch32"
+  prompt: "papaya"
+  conf_threshold: 0.35
+  preview: true
+  device: "auto"
+
+exporter:
+  input_dir: "data/annotated"
+  output_dir: "data/export"
+  format: "yolo" # yolo | coco | voc | all
+  split: [70, 20, 10]
+  seed: 42
+  verified_only: false
+

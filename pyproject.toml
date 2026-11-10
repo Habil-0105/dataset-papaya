@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "papaya-cli"
+version = "0.1.0"
+description = "CLI tool to scrape, clean, auto-annotate, and export California papaya ripeness object detection datasets."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "icrawler>=0.6.7",
+    "pillow>=10.0.0",
+    "imagehash>=4.3.1",
+    "torch>=2.1.0",
+    "transformers>=4.40.0",
+    "tqdm>=4.66.0",
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+papaya-cli = "papaya_cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["papaya_cli*"]
+

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tests & cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Dataset & training artifacts
+data/
+runs/
+
+# OS & secrets
+.DS_Store
+.env
+
