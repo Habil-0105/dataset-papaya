@@ -19,11 +19,11 @@ from papaya_cli.utils import (
 logger = logging.getLogger("papaya_cli.annotator")
 
 RIPENESS_PROMPTS: dict[str, str] = {
-    "unripe": "a photo of an unripe green papaya fruit",
-    "early_ripening": "a photo of a half-ripe papaya fruit turning yellow",
-    "ripe": "a photo of a ripe orange papaya fruit",
-    "overripe": "a photo of an overripe soft wrinkled papaya fruit",
-    "rotten": "a photo of a rotten moldy spoiled papaya fruit",
+    "unripe": "a photo of an unripe green oblong California papaya fruit",
+    "early_ripening": "a photo of a half-ripe oblong California papaya fruit turning yellow",
+    "ripe": "a photo of a ripe yellow-orange oblong California papaya fruit",
+    "overripe": "a photo of an overripe soft wrinkled California papaya fruit",
+    "rotten": "a photo of a rotten moldy spoiled California papaya fruit",
 }
 
 

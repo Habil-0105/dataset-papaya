@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -49,6 +50,22 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     logger.addHandler(handler)
     logger.setLevel(level)
     return logger
+
+
+def load_dotenv(path: str | Path = ".env") -> None:
+    """Populate `os.environ` from a `.env` file without overriding existing vars."""
+    env_path = Path(path)
+    if not env_path.is_file():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, val)
 
 
 def load_config(path: str | Path | None) -> dict[str, Any]:

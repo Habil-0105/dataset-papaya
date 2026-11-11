@@ -19,6 +19,7 @@ from papaya_cli.utils import (
     DEFAULT_USER_AGENT,
     IMAGE_EXTENSIONS,
     RobotsChecker,
+    load_dotenv,
     retry_with_backoff,
 )
 
@@ -407,6 +408,7 @@ def build_scraper_config(
     delay: float | None = None,
 ) -> ScraperConfig:
     """Build `ScraperConfig` from parsed YAML dict and optional CLI overrides."""
+    load_dotenv()
     s_cfg = raw_cfg.get("scraper", {})
     min_sz = s_cfg.get("min_size", [320, 320])
     return ScraperConfig(

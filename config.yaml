@@ -7,30 +7,30 @@ classes:
 
 queries:
   unripe:
-    - "california papaya unripe green"
-    - "unripe green papaya fruit on tree"
     - "pepaya california mentah hijau"
-    - "buah pepaya muda hijau"
+    - "buah pepaya california muda hijau"
+    - "pepaya calina mentah"
+    - "california papaya unripe green whole fruit"
   early_ripening:
-    - "papaya early ripening turning yellow"
-    - "half ripe papaya fruit yellow green"
-    - "pepaya california mengkal"
-    - "buah pepaya setengah matang kuning hijau"
+    - "pepaya california mengkal kuning hijau"
+    - "buah pepaya california setengah matang"
+    - "pepaya calina mengkal"
+    - "california papaya half ripe turning yellow"
   ripe:
-    - "ripe california papaya fruit orange"
-    - "ripe papaya fruit"
     - "pepaya california matang"
-    - "buah pepaya matang segar"
+    - "buah pepaya california matang utuh"
+    - "pepaya calina matang"
+    - "ripe california papaya whole fruit"
   overripe:
-    - "papaya overripe soft"
-    - "overripe papaya fruit wrinkled"
-    - "pepaya terlalu matang"
-    - "buah pepaya kelewat matang"
+    - "pepaya california terlalu matang"
+    - "buah pepaya california kelewat matang"
+    - "overripe california papaya fruit"
+    - "california papaya overripe soft"
   rotten:
-    - "papaya rotten spoiled mold"
-    - "rotten papaya fruit decay"
-    - "pepaya busuk berjamur"
-    - "buah pepaya busuk"
+    - "pepaya california busuk"
+    - "buah pepaya california busuk berjamur"
+    - "rotten california papaya fruit"
+    - "moldy spoiled california papaya"
 
 scraper:
   output_dir: "data/raw"
@@ -38,9 +38,8 @@ scraper:
   min_size: [320, 320]
   delay: 1.0
   threads: 4
-  sources: ["bing", "google"]
-  # Optional API sources: add "unsplash" / "pexels" to sources and set keys or env vars
-  # (UNSPLASH_ACCESS_KEY / PEXELS_API_KEY).
+  sources: ["bing", "google", "unsplash"]
+  # API keys can be set here or in .env (UNSPLASH_ACCESS_KEY / PEXELS_API_KEY).
   unsplash_access_key: ""
   pexels_api_key: ""
   max_retries: 3
@@ -50,9 +49,9 @@ cleaner:
   input_dir: "data/raw"
   output_dir: "data/clean"
   min_size: [320, 320]
-  phash_threshold: 6
+  phash_threshold: 8
   clip_model: "openai/clip-vit-base-patch32"
-  clip_threshold: 0.5
+  clip_threshold: 0.6
   device: "auto"
 
 annotator:
@@ -62,7 +61,7 @@ annotator:
   detector_model: "IDEA-Research/grounding-dino-tiny"
   clip_model: "openai/clip-vit-base-patch32"
   prompt: "papaya"
-  conf_threshold: 0.35
+  conf_threshold: 0.4
   preview: true
   device: "auto"
 
@@ -73,4 +72,3 @@ exporter:
   split: [70, 20, 10]
   seed: 42
   verified_only: false
-

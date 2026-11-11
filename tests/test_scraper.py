@@ -10,10 +10,11 @@ from unittest.mock import patch
 from papaya_cli.scraper import (
     ScraperConfig,
     SourceManifest,
+    build_scraper_config,
     count_existing_images,
     scrape_dataset,
 )
-from papaya_cli.utils import CLASSES, RobotsChecker, retry_with_backoff
+from papaya_cli.utils import CLASSES, RobotsChecker, load_dotenv, retry_with_backoff
 
 
 class TestUtilsAndScraper(unittest.TestCase):
@@ -67,6 +68,16 @@ class TestUtilsAndScraper(unittest.TestCase):
                 summary = scrape_dataset(cfg)
                 mock_crawl.assert_not_called()
             self.assertEqual(summary["ripe"], 2)
+
+    def test_load_dotenv_sets_unsplash_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text('UNSPLASH_ACCESS_KEY="test-key-123"\n', encoding="utf-8")
+            with patch.dict("os.environ", {}, clear=True):
+                load_dotenv(env_file)
+                cfg = build_scraper_config({"scraper": {"sources": ["unsplash"]}})
+            self.assertEqual(cfg.unsplash_access_key, "test-key-123")
+            self.assertIn("unsplash", cfg.sources)
 
 
 if __name__ == "__main__":

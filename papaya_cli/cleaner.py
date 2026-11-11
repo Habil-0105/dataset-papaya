@@ -40,19 +40,22 @@ class CleanerConfig:
     input_dir: Path = Path("data/raw")
     output_dir: Path = Path("data/clean")
     min_size: tuple[int, int] = (320, 320)
-    phash_threshold: int = 6
+    phash_threshold: int = 8
     clip_model: str = "openai/clip-vit-base-patch32"
-    clip_threshold: float = 0.5
+    clip_threshold: float = 0.6
     device: str = "auto"
     skip_clip: bool = False
 
 
 class ClipPapayaFilter:
-    """Zero-shot CLIP classifier checking whether an image contains a papaya."""
+    """Zero-shot CLIP classifier checking for a whole California papaya fruit."""
 
     PROMPTS = (
-        "a photo of a papaya fruit",
-        "a photo without any papaya fruit",
+        "a photo of a whole oblong California papaya fruit",
+        "a photo of sliced papaya, papaya salad, food dish, or juice",
+        "a photo of papaya leaves, seeds, tree bark, or skincare product",
+        "a photo of another fruit such as mango, banana, melon, or avocado",
+        "an illustration, logo, text banner, or photo without papaya fruit",
     )
 
     def __init__(self, model_name: str, device: str = "auto") -> None:
@@ -180,9 +183,9 @@ def build_cleaner_config(
         input_dir=input_dir or Path(c_cfg.get("input_dir", "data/raw")),
         output_dir=output_dir or Path(c_cfg.get("output_dir", "data/clean")),
         min_size=(int(min_sz[0]), int(min_sz[1])),
-        phash_threshold=int(c_cfg.get("phash_threshold", 6)),
+        phash_threshold=int(c_cfg.get("phash_threshold", 8)),
         clip_model=str(c_cfg.get("clip_model", "openai/clip-vit-base-patch32")),
-        clip_threshold=float(c_cfg.get("clip_threshold", 0.5)),
+        clip_threshold=float(c_cfg.get("clip_threshold", 0.6)),
         device=device or str(c_cfg.get("device", "auto")),
     )
 
@@ -237,7 +240,11 @@ def clean_dataset(
                 img.verify()
             with Image.open(src_path) as img:
                 width, height = img.size
-                if width < cfg.min_size[0] or height < cfg.min_size[1]:
+                if (
+                    width < cfg.min_size[0]
+                    or height < cfg.min_size[1]
+                    or max(width / height, height / width) > 3.5
+                ):
                     stats["corrupt_or_small"] += 1
                     continue
                 phash = compute_phash(img)
