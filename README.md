@@ -65,12 +65,15 @@ papaya-cli --help
 papaya-cli annotate --help
 ```
 
-### Sumber Opsional: Unsplash & Pexels API
+### Sumber Gambar & API Keys Opsional
 
-Tambahkan `"unsplash"` atau `"pexels"` pada `scraper.sources` di `config.yaml`, lalu isi key di YAML atau set environment variable:
+Sumber tanpa API key (`bing`, `google`, `duckduckgo`, `wikimedia`, `inaturalist`) aktif langsung. Sumber berbasis API (`unsplash`, `pexels`, `pixabay`, `flickr`, `serper`) otomatis aktif jika key-nya diisi di `.env` (atau `config.yaml`) dan dilewati jika kosong:
 
 ```bash
 export UNSPLASH_ACCESS_KEY="your_unsplash_key"
+export PIXABAY_API_KEY="your_pixabay_key"
+export FLICKR_API_KEY="your_flickr_key"
+export SERPER_API_KEY="your_serper_key"
 export PEXELS_API_KEY="your_pexels_key"
 ```
 

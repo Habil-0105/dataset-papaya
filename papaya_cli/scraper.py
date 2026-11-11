@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,13 +26,22 @@ from papaya_cli.utils import (
 
 logger = logging.getLogger("papaya_cli.scraper")
 
+API_KEY_SOURCES: dict[str, tuple[str, str]] = {
+    "unsplash": ("unsplash_access_key", "UNSPLASH_ACCESS_KEY"),
+    "pexels": ("pexels_api_key", "PEXELS_API_KEY"),
+    "pixabay": ("pixabay_api_key", "PIXABAY_API_KEY"),
+    "flickr": ("flickr_api_key", "FLICKR_API_KEY"),
+    "serper": ("serper_api_key", "SERPER_API_KEY"),
+}
+
 
 @dataclass
 class ScraperConfig:
     """Configuration options for image scraping."""
 
     output_dir: Path = Path("data/raw")
-    per_class: int = 200
+    per_class: int = 200  # <= 0 means unlimited across all queries and sources
+    per_query_limit: int = 100
     min_size: tuple[int, int] = (320, 320)
     delay: float = 1.0
     threads: int = 4
@@ -40,6 +50,9 @@ class ScraperConfig:
     respect_robots: bool = True
     unsplash_access_key: str = ""
     pexels_api_key: str = ""
+    pixabay_api_key: str = ""
+    flickr_api_key: str = ""
+    serper_api_key: str = ""
     queries: dict[str, list[str]] = field(default_factory=dict)
 
 
@@ -177,35 +190,55 @@ def download_image_to_file(
     return validate_and_save_image(content, dest_path, min_size)
 
 
+def _fetch_json(
+    method: str,
+    url: str,
+    *,
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    import requests  # type: ignore
+
+    merged_headers = {"User-Agent": DEFAULT_USER_AGENT, **(headers or {})}
+
+    def _req() -> dict[str, Any]:
+        resp = requests.request(
+            method,
+            url,
+            params=params,
+            headers=merged_headers,
+            json=json_body,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    return retry_with_backoff(
+        _req,
+        max_retries=max_retries,
+        exceptions=(requests.RequestException, ValueError),
+        logger=logger,
+    )
+
+
 def _fetch_unsplash_urls(
     query: str, limit: int, access_key: str, max_retries: int = 3
 ) -> list[str]:
     if not access_key:
         return []
-    import requests  # type: ignore
-
     urls: list[str] = []
     per_page = min(30, limit)
     pages = max(1, (limit + per_page - 1) // per_page)
     for page in range(1, pages + 1):
-        def _req() -> dict[str, Any]:
-            resp = requests.get(
-                "https://api.unsplash.com/search/photos",
-                params={"query": query, "per_page": per_page, "page": page},
-                headers={
-                    "Authorization": f"Client-ID {access_key}",
-                    "User-Agent": DEFAULT_USER_AGENT,
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-        try:
-            payload = retry_with_backoff(_req, max_retries=max_retries, logger=logger)
-        except Exception as exc:
-            logger.warning("Unsplash query '%s' failed: %s", query, exc)
-            break
+        payload = _fetch_json(
+            "GET",
+            "https://api.unsplash.com/search/photos",
+            params={"query": query, "per_page": per_page, "page": page},
+            headers={"Authorization": f"Client-ID {access_key}"},
+            max_retries=max_retries,
+        )
         results = payload.get("results", [])
         if not results:
             break
@@ -223,30 +256,17 @@ def _fetch_pexels_urls(
 ) -> list[str]:
     if not api_key:
         return []
-    import requests  # type: ignore
-
     urls: list[str] = []
     per_page = min(80, limit)
     pages = max(1, (limit + per_page - 1) // per_page)
     for page in range(1, pages + 1):
-        def _req() -> dict[str, Any]:
-            resp = requests.get(
-                "https://api.pexels.com/v1/search",
-                params={"query": query, "per_page": per_page, "page": page},
-                headers={
-                    "Authorization": api_key,
-                    "User-Agent": DEFAULT_USER_AGENT,
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-        try:
-            payload = retry_with_backoff(_req, max_retries=max_retries, logger=logger)
-        except Exception as exc:
-            logger.warning("Pexels query '%s' failed: %s", query, exc)
-            break
+        payload = _fetch_json(
+            "GET",
+            "https://api.pexels.com/v1/search",
+            params={"query": query, "per_page": per_page, "page": page},
+            headers={"Authorization": api_key},
+            max_retries=max_retries,
+        )
         photos = payload.get("photos", [])
         if not photos:
             break
@@ -259,19 +279,233 @@ def _fetch_pexels_urls(
     return urls
 
 
+def _fetch_pixabay_urls(
+    query: str, limit: int, api_key: str, max_retries: int = 3
+) -> list[str]:
+    if not api_key:
+        return []
+    urls: list[str] = []
+    per_page = max(3, min(200, limit))
+    pages = max(1, (limit + per_page - 1) // per_page)
+    for page in range(1, pages + 1):
+        payload = _fetch_json(
+            "GET",
+            "https://pixabay.com/api/",
+            params={
+                "key": api_key,
+                "q": query,
+                "image_type": "photo",
+                "per_page": per_page,
+                "page": page,
+            },
+            max_retries=max_retries,
+        )
+        hits = payload.get("hits", [])
+        if not hits:
+            break
+        for item in hits:
+            url = item.get("largeImageURL") or item.get("webformatURL")
+            if url:
+                urls.append(url)
+            if len(urls) >= limit:
+                return urls
+    return urls
+
+
+def _fetch_flickr_urls(
+    query: str, limit: int, api_key: str, max_retries: int = 3
+) -> list[str]:
+    if not api_key:
+        return []
+    urls: list[str] = []
+    per_page = min(100, limit)
+    pages = max(1, (limit + per_page - 1) // per_page)
+    for page in range(1, pages + 1):
+        payload = _fetch_json(
+            "GET",
+            "https://www.flickr.com/services/rest/",
+            params={
+                "method": "flickr.photos.search",
+                "api_key": api_key,
+                "text": query,
+                "format": "json",
+                "nojsoncallback": 1,
+                "content_type": 1,
+                "media": "photos",
+                "extras": "url_l,url_c,url_z",
+                "per_page": per_page,
+                "page": page,
+            },
+            max_retries=max_retries,
+        )
+        photos = payload.get("photos", {}).get("photo", [])
+        if not photos:
+            break
+        for item in photos:
+            url = item.get("url_l") or item.get("url_c") or item.get("url_z")
+            if not url and item.get("server") and item.get("id") and item.get("secret"):
+                url = f"https://live.staticflickr.com/{item['server']}/{item['id']}_{item['secret']}_b.jpg"
+            if url:
+                urls.append(url)
+            if len(urls) >= limit:
+                return urls
+    return urls
+
+
+def _fetch_serper_urls(
+    query: str, limit: int, api_key: str, max_retries: int = 3
+) -> list[str]:
+    if not api_key:
+        return []
+    urls: list[str] = []
+    num = min(100, limit)
+    pages = max(1, (limit + num - 1) // num)
+    for page in range(1, pages + 1):
+        payload = _fetch_json(
+            "POST",
+            "https://google.serper.dev/images",
+            headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+            json_body={"q": query, "num": num, "page": page},
+            max_retries=max_retries,
+        )
+        images = payload.get("images", [])
+        if not images:
+            break
+        for item in images:
+            url = item.get("imageUrl")
+            if url:
+                urls.append(url)
+            if len(urls) >= limit:
+                return urls
+    return urls
+
+
+def _fetch_wikimedia_urls(
+    query: str, limit: int, max_retries: int = 3
+) -> list[str]:
+    payload = _fetch_json(
+        "GET",
+        "https://commons.wikimedia.org/w/api.php",
+        params={
+            "action": "query",
+            "generator": "search",
+            "gsrsearch": f"filetype:bitmap {query}",
+            "gsrnamespace": 6,
+            "gsrlimit": min(50, limit),
+            "prop": "imageinfo",
+            "iiprop": "url|mime",
+            "iiurlwidth": 1024,
+            "format": "json",
+        },
+        max_retries=max_retries,
+    )
+    pages = payload.get("query", {}).get("pages", {})
+    urls: list[str] = []
+    for page in pages.values():
+        infos = page.get("imageinfo") or []
+        if not infos:
+            continue
+        info = infos[0]
+        mime = str(info.get("mime", ""))
+        if not mime.startswith("image/") or "svg" in mime:
+            continue
+        url = info.get("thumburl") or info.get("url")
+        if url:
+            urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
+def _fetch_inaturalist_urls(
+    cls_name: str, limit: int, max_retries: int = 3
+) -> list[str]:
+    ripeness_hint = cls_name.replace("_", " ")
+    payload = _fetch_json(
+        "GET",
+        "https://api.inaturalist.org/v1/observations",
+        params={
+            "taxon_name": "Carica papaya",
+            "q": ripeness_hint,
+            "photos": "true",
+            "quality_grade": "research",
+            "per_page": min(100, limit),
+            "page": 1,
+        },
+        max_retries=max_retries,
+    )
+    urls: list[str] = []
+    for obs in payload.get("results", []):
+        for photo in obs.get("photos", []):
+            url = photo.get("url")
+            if url:
+                urls.append(url.replace("square.", "large."))
+            if len(urls) >= limit:
+                return urls
+    return urls
+
+
+def _fetch_duckduckgo_urls(
+    query: str, limit: int, max_retries: int = 3
+) -> list[str]:
+    try:
+        try:
+            from ddgs import DDGS  # type: ignore
+        except ImportError:
+            from duckduckgo_search import DDGS  # type: ignore
+
+        results = DDGS().images(query, max_results=limit)
+        return [item["image"] for item in results if item.get("image")][:limit]
+    except ImportError:
+        pass
+
+    import requests  # type: ignore
+
+    headers = {"User-Agent": DEFAULT_USER_AGENT}
+
+    def _get_vqd() -> str:
+        resp = requests.get(
+            "https://duckduckgo.com/",
+            params={"q": query},
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        match = re.search(r"vqd=([\d-]+)", resp.text) or re.search(
+            r'vqd="([^"]+)"', resp.text
+        )
+        if not match:
+            raise ValueError("DuckDuckGo vqd token not found")
+        return match.group(1)
+
+    vqd = retry_with_backoff(_get_vqd, max_retries=max_retries, logger=logger)
+    payload = _fetch_json(
+        "GET",
+        "https://duckduckgo.com/i.js",
+        params={"l": "id-id", "o": "json", "q": query, "vqd": vqd, "f": ",,,"},
+        headers={"Referer": "https://duckduckgo.com/"},
+        max_retries=max_retries,
+    )
+    return [
+        item["image"]
+        for item in payload.get("results", [])
+        if item.get("image")
+    ][:limit]
+
+
 def _scrape_api_urls(
     urls: list[str],
     class_dir: Path,
     cls_name: str,
     query: str,
-    needed: int,
+    needed: int | None,
     cfg: ScraperConfig,
     manifest: SourceManifest,
     robots: RobotsChecker | None,
 ) -> int:
     """Download API-provided image URLs concurrently, skipping existing/seen URLs."""
     candidates = [u for u in urls if not manifest.has_url(u)]
-    if not candidates or needed <= 0:
+    if not candidates or (needed is not None and needed <= 0):
         return 0
 
     saved = 0
@@ -279,9 +513,10 @@ def _scrape_api_urls(
 
     def _worker(url: str) -> bool:
         nonlocal saved
-        with lock:
-            if saved >= needed:
-                return False
+        if needed is not None:
+            with lock:
+                if saved >= needed:
+                    return False
         digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
         dest = class_dir / f"{digest}.jpg"
         if dest.exists():
@@ -297,15 +532,16 @@ def _scrape_api_urls(
         if not ok:
             return False
         with lock:
-            if saved >= needed:
+            if needed is not None and saved >= needed:
                 dest.unlink(missing_ok=True)
                 return False
             saved += 1
         manifest.add(f"{cls_name}/{dest.name}", url, query, cls_name)
         return True
 
+    batch = candidates if needed is None else candidates[: needed * 2]
     with ThreadPoolExecutor(max_workers=max(1, cfg.threads)) as pool:
-        futures = [pool.submit(_worker, u) for u in candidates[: needed * 2]]
+        futures = [pool.submit(_worker, u) for u in batch]
         for fut in as_completed(futures):
             try:
                 fut.result()
@@ -400,6 +636,10 @@ def _crawl_with_icrawler(
     return saved_counter["count"]
 
 
+def _resolve_key(s_cfg: dict[str, Any], field_name: str, env_name: str) -> str:
+    return str(s_cfg.get(field_name) or os.environ.get(env_name, ""))
+
+
 def build_scraper_config(
     raw_cfg: dict[str, Any],
     output_dir: Path | None = None,
@@ -411,23 +651,62 @@ def build_scraper_config(
     load_dotenv()
     s_cfg = raw_cfg.get("scraper", {})
     min_sz = s_cfg.get("min_size", [320, 320])
+    key_kwargs = {
+        field_name: _resolve_key(s_cfg, field_name, env_name)
+        for field_name, env_name in API_KEY_SOURCES.values()
+    }
     return ScraperConfig(
         output_dir=output_dir or Path(s_cfg.get("output_dir", "data/raw")),
         per_class=per_class if per_class is not None else int(s_cfg.get("per_class", 200)),
+        per_query_limit=int(s_cfg.get("per_query_limit", 100)),
         min_size=(int(min_sz[0]), int(min_sz[1])),
         delay=delay if delay is not None else float(s_cfg.get("delay", 1.0)),
         threads=threads if threads is not None else int(s_cfg.get("threads", 4)),
         sources=tuple(s_cfg.get("sources", ["bing", "google"])),
         max_retries=int(s_cfg.get("max_retries", 3)),
         respect_robots=bool(s_cfg.get("respect_robots", True)),
-        unsplash_access_key=(
-            s_cfg.get("unsplash_access_key") or os.environ.get("UNSPLASH_ACCESS_KEY", "")
-        ),
-        pexels_api_key=(
-            s_cfg.get("pexels_api_key") or os.environ.get("PEXELS_API_KEY", "")
-        ),
         queries=dict(raw_cfg.get("queries", {})),
+        **key_kwargs,
     )
+
+
+def _fetch_urls_for_source(
+    source: str,
+    query: str,
+    cls_name: str,
+    limit: int,
+    cfg: ScraperConfig,
+    warned_missing_keys: set[str],
+) -> list[str]:
+    if source in API_KEY_SOURCES:
+        field_name, env_name = API_KEY_SOURCES[source]
+        api_key = getattr(cfg, field_name, "")
+        if not api_key:
+            if source not in warned_missing_keys:
+                warned_missing_keys.add(source)
+                logger.info(
+                    "Skipping source '%s': set %s in config.yaml or %s in .env to enable.",
+                    source,
+                    field_name,
+                    env_name,
+                )
+            return []
+        keyed_fetchers = {
+            "unsplash": _fetch_unsplash_urls,
+            "pexels": _fetch_pexels_urls,
+            "pixabay": _fetch_pixabay_urls,
+            "flickr": _fetch_flickr_urls,
+            "serper": _fetch_serper_urls,
+        }
+        return keyed_fetchers[source](query, limit, api_key, cfg.max_retries)
+
+    if source == "wikimedia":
+        return _fetch_wikimedia_urls(query, limit, cfg.max_retries)
+    if source == "inaturalist":
+        return _fetch_inaturalist_urls(cls_name, limit, cfg.max_retries)
+    if source == "duckduckgo":
+        return _fetch_duckduckgo_urls(query, limit, cfg.max_retries)
+    raise ValueError(f"Unknown source '{source}'")
 
 
 def scrape_dataset(cfg: ScraperConfig) -> dict[str, int]:
@@ -435,13 +714,15 @@ def scrape_dataset(cfg: ScraperConfig) -> dict[str, int]:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     manifest = SourceManifest(cfg.output_dir / "sources.jsonl")
     robots = RobotsChecker() if cfg.respect_robots else None
+    warned_missing_keys: set[str] = set()
+    unlimited = cfg.per_class <= 0
     summary: dict[str, int] = {}
 
     for cls_name in CLASSES:
         class_dir = cfg.output_dir / cls_name
         class_dir.mkdir(parents=True, exist_ok=True)
         existing = count_existing_images(class_dir)
-        if existing >= cfg.per_class:
+        if not unlimited and existing >= cfg.per_class:
             logger.info(
                 "[%s] Resume: already has %d/%d images, skipping.",
                 cls_name,
@@ -452,45 +733,49 @@ def scrape_dataset(cfg: ScraperConfig) -> dict[str, int]:
             continue
 
         queries = cfg.queries.get(cls_name) or [f"california papaya {cls_name.replace('_', ' ')}"]
+        target_label = "unlimited" if unlimited else str(cfg.per_class)
         logger.info(
-            "[%s] Starting scrape: %d existing, target %d (%d queries).",
+            "[%s] Starting scrape: %d existing, target %s (%d queries).",
             cls_name,
             existing,
-            cfg.per_class,
+            target_label,
             len(queries),
         )
 
-        for query in queries:
-            current = count_existing_images(class_dir)
-            remaining = cfg.per_class - current
-            if remaining <= 0:
+        for query_idx, query in enumerate(queries):
+            if not unlimited and count_existing_images(class_dir) >= cfg.per_class:
                 break
-            per_query_target = max(1, remaining)
 
             for source in cfg.sources:
-                current = count_existing_images(class_dir)
-                remaining = cfg.per_class - current
-                if remaining <= 0:
-                    break
-                take = min(per_query_target, remaining)
+                if not unlimited:
+                    remaining = cfg.per_class - count_existing_images(class_dir)
+                    if remaining <= 0:
+                        break
+                    crawl_limit = remaining
+                    fetch_limit = remaining * 2
+                    dl_limit: int | None = remaining
+                else:
+                    crawl_limit = cfg.per_query_limit
+                    fetch_limit = cfg.per_query_limit
+                    dl_limit = None
+
+                if source == "inaturalist" and query_idx > 0:
+                    continue
                 try:
                     if source in ("bing", "google"):
                         _crawl_with_icrawler(
-                            source, query, class_dir, cls_name, take, cfg, manifest, robots
+                            source, query, class_dir, cls_name, crawl_limit, cfg, manifest, robots
                         )
-                    elif source == "unsplash":
-                        urls = _fetch_unsplash_urls(
-                            query, take * 2, cfg.unsplash_access_key, cfg.max_retries
-                        )
-                        _scrape_api_urls(
-                            urls, class_dir, cls_name, query, take, cfg, manifest, robots
-                        )
-                    elif source == "pexels":
-                        urls = _fetch_pexels_urls(
-                            query, take * 2, cfg.pexels_api_key, cfg.max_retries
+                    elif source in API_KEY_SOURCES or source in (
+                        "wikimedia",
+                        "inaturalist",
+                        "duckduckgo",
+                    ):
+                        urls = _fetch_urls_for_source(
+                            source, query, cls_name, fetch_limit, cfg, warned_missing_keys
                         )
                         _scrape_api_urls(
-                            urls, class_dir, cls_name, query, take, cfg, manifest, robots
+                            urls, class_dir, cls_name, query, dl_limit, cfg, manifest, robots
                         )
                     else:
                         logger.warning("Unknown source '%s', skipping.", source)

@@ -44,7 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scrape.add_argument("--config", type=str, default=None, help="Path to config.yaml.")
     p_scrape.add_argument("--output", type=Path, default=None, help="Output raw directory.")
     p_scrape.add_argument(
-        "--per-class", type=int, default=None, help="Target images per class (default: 200)."
+        "--per-class",
+        type=int,
+        default=None,
+        help="Target images per class (0 = unlimited; default from config).",
     )
     p_scrape.add_argument("--threads", type=int, default=None, help="Download threads.")
     p_scrape.add_argument("--delay", type=float, default=None, help="Delay between requests (s).")

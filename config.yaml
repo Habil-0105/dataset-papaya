@@ -34,14 +34,28 @@ queries:
 
 scraper:
   output_dir: "data/raw"
-  per_class: 200
+  per_class: 0 # 0 = unlimited (ambil dari semua query & semua sumber)
+  per_query_limit: 100 # maks kandidat per query per sumber saat unlimited
   min_size: [320, 320]
   delay: 1.0
   threads: 4
-  sources: ["bing", "google", "unsplash"]
-  # API keys can be set here or in .env (UNSPLASH_ACCESS_KEY / PEXELS_API_KEY).
+  sources:
+    - "bing"
+    - "google"
+    - "duckduckgo"
+    - "unsplash"
+    - "wikimedia"
+    - "inaturalist"
+    - "pixabay"
+    - "flickr"
+    - "serper"
+  # API keys can be set here or in .env (UNSPLASH_ACCESS_KEY, PEXELS_API_KEY,
+  # PIXABAY_API_KEY, FLICKR_API_KEY, SERPER_API_KEY). Sources without a key are skipped.
   unsplash_access_key: ""
   pexels_api_key: ""
+  pixabay_api_key: ""
+  flickr_api_key: ""
+  serper_api_key: ""
   max_retries: 3
   respect_robots: true
 

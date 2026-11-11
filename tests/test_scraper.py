@@ -10,6 +10,12 @@ from unittest.mock import patch
 from papaya_cli.scraper import (
     ScraperConfig,
     SourceManifest,
+    _fetch_flickr_urls,
+    _fetch_inaturalist_urls,
+    _fetch_pixabay_urls,
+    _fetch_serper_urls,
+    _fetch_urls_for_source,
+    _fetch_wikimedia_urls,
     build_scraper_config,
     count_existing_images,
     scrape_dataset,
@@ -78,6 +84,87 @@ class TestUtilsAndScraper(unittest.TestCase):
                 cfg = build_scraper_config({"scraper": {"sources": ["unsplash"]}})
             self.assertEqual(cfg.unsplash_access_key, "test-key-123")
             self.assertIn("unsplash", cfg.sources)
+
+    def test_new_source_fetchers_parse_urls_and_skip_missing_keys(self) -> None:
+        cfg = ScraperConfig()
+        warned: set[str] = set()
+        self.assertEqual(
+            _fetch_urls_for_source("pixabay", "pepaya", "ripe", 5, cfg, warned), []
+        )
+        self.assertIn("pixabay", warned)
+
+        with patch(
+            "papaya_cli.scraper._fetch_json",
+            return_value={"hits": [{"largeImageURL": "https://pix.example/1.jpg"}]},
+        ):
+            self.assertEqual(
+                _fetch_pixabay_urls("pepaya", 2, "key"), ["https://pix.example/1.jpg"]
+            )
+
+        with patch(
+            "papaya_cli.scraper._fetch_json",
+            return_value={
+                "photos": {
+                    "photo": [{"server": "12", "id": "34", "secret": "ab"}]
+                }
+            },
+        ):
+            self.assertEqual(
+                _fetch_flickr_urls("pepaya", 2, "key"),
+                ["https://live.staticflickr.com/12/34_ab_b.jpg"],
+            )
+
+        with patch(
+            "papaya_cli.scraper._fetch_json",
+            return_value={"images": [{"imageUrl": "https://serp.example/1.jpg"}]},
+        ):
+            self.assertEqual(
+                _fetch_serper_urls("pepaya", 2, "key"), ["https://serp.example/1.jpg"]
+            )
+
+        with patch(
+            "papaya_cli.scraper._fetch_json",
+            return_value={
+                "query": {
+                    "pages": {
+                        "1": {"imageinfo": [{"mime": "image/jpeg", "thumburl": "https://wiki.example/1.jpg"}]},
+                        "2": {"imageinfo": [{"mime": "image/svg+xml", "url": "https://wiki.example/bad.svg"}]},
+                    }
+                }
+            },
+        ):
+            self.assertEqual(
+                _fetch_wikimedia_urls("pepaya", 5), ["https://wiki.example/1.jpg"]
+            )
+
+        with patch(
+            "papaya_cli.scraper._fetch_json",
+            return_value={
+                "results": [{"photos": [{"url": "https://inat.example/1/square.jpg"}]}]
+            },
+        ):
+            self.assertEqual(
+                _fetch_inaturalist_urls("ripe", 5), ["https://inat.example/1/large.jpg"]
+            )
+
+    def test_unlimited_mode_runs_all_queries_and_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = ScraperConfig(
+                output_dir=root,
+                per_class=0,
+                per_query_limit=50,
+                sources=("bing", "wikimedia"),
+                queries={cls_name: ["q1", "q2"] for cls_name in CLASSES},
+            )
+            with (
+                patch("papaya_cli.scraper._crawl_with_icrawler") as m_crawl,
+                patch("papaya_cli.scraper._fetch_wikimedia_urls", return_value=[]) as m_wiki,
+            ):
+                scrape_dataset(cfg)
+
+            self.assertEqual(m_crawl.call_count, len(CLASSES) * 2)
+            self.assertEqual(m_wiki.call_count, len(CLASSES) * 2)
 
 
 if __name__ == "__main__":
